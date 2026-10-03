@@ -5528,7 +5528,8 @@ async function handleFastIssueCode(idx, duration) {
         duration: duration,
         expiresAt: roomExpiry,
         isUnified: true,
-        subExams: subExams
+        subExams: subExams,
+        antiCheat: folder.antiCheat === true   // 👈 THÊM DÒNG NÀY
     };
 
     await rdb.ref('system/global_share_map/' + accessCode).set(examData);
@@ -5590,18 +5591,18 @@ function showDetailedSplitInterface(idx, duration) {
             subExams.push({ subId: (i + 101), questions: shuffledQ });
         }
 
-const examData = {
+        const examData = {
             admin: currentUser.user,
             folderIdx: idx,
             examName: folder.name,
             subject: folder.subject || "Tự do",
-            // LẤY DỮ LIỆU TỪ BỘ ĐỀ ĐỂ GỬI LÊN SERVER
             school: folder.school || "",      
             className: folder.className || "",
             duration: duration,
             expiresAt: roomExpiry,
             isUnified: true,
-            subExams: subExams
+            subExams: subExams,
+            antiCheat: folder.antiCheat === true   // 👈 THÊM DÒNG NÀY
         };
 
         // Gửi dữ liệu lên Server
@@ -6086,6 +6087,22 @@ function handleJoinQuiz() {
         if (!data || now > data.expiresAt) {
             return sysNotify("HẾT HẠN", "Mã đề này đã hết thời gian sử dụng!", "error");
         }
+
+        // 👇👇👇 THÊM ĐOẠN NÀY 👇👇👇
+        // Tra cứu xem folder gốc có bật Anti-Cheat không
+        let folderAntiCheat = false;
+        try {
+            const adminKeyForFolder = data.admin.replace(/\./g, '_');
+            const folderSnap = await rdb.ref(`users_data/${adminKeyForFolder}/quiz_folders/${data.folderIdx}`).once('value');
+            const folderData = folderSnap.val();
+            if (folderData && folderData.antiCheat === true) {
+                folderAntiCheat = true;
+            }
+        } catch (e) {
+            console.warn("Không tra cứu được folder gốc:", e);
+        }
+        // 👆👆👆 KẾT THÚC 👆👆👆
+        
         
         if (now > data.expiresAt) {
             return sysNotify("HẾT HẠN", `
@@ -6133,19 +6150,20 @@ function handleJoinQuiz() {
 
         const safeUser = name.replace(/[.$#[\]]/g, "_") + "_" + code + "_" + subVersionLabel;
 
-        // --- ĐOẠN FIX: LƯU TRƯỜNG VÀ LỚP VÀO MÁY THÍ SINH ---
         currentUser = { 
             name: name, 
             user: safeUser, 
             isAdmin: false, 
-            adminSource: data.admin.replace(/\./g, '_'), // <--- ÉP THÀNH GẠCH DƯỚI NGAY TẠI ĐÂY
+            adminSource: data.admin.replace(/\./g, '_'),
             examCode: code, 
             examName: data.examName + ` (Mã đề: ${subVersionLabel})`,
             subject: data.subject || "TỰ DO",
             school: data.school || "",
             className: data.className || "",
             quizDuration: parseInt(data.duration) || 45,
-            fixedQuestions: pickedQuestions 
+            fixedQuestions: pickedQuestions,
+            antiCheat: folderAntiCheat,   // 👈 DÙNG BIẾN VỪA TRA CỨU
+            folderIdx: data.folderIdx
         };
         // ---------------------------------------------------
 
@@ -6288,17 +6306,6 @@ try {
         renderQuestion();
         startTimer();
         saveQuizBlackBox();
-
-        // 👇👇👇 THÊM ĐOẠN NÀY VÀO 👇👇👇
-        if (isAntiCheatEnabledForCurrentExam()) {
-            setTimeout(() => {
-                activateAntiCheat();
-                showModernToast("🛡️ CHỐNG GIAN LẬN", 
-                    "Đã BẬT chế độ chống gian lận. Không chuyển tab, không chụp màn hình!", 
-                    "warn");
-            }, 1500);
-        }
-        saveQuizBlackBox(); // Lưu trạng thái khởi đầu vào Hộp đen
 
         // 👇👇👇 THÊM ĐOẠN NÀY VÀO 👇👇👇
         // Kích hoạt chống gian lận nếu bộ đề này có bật
